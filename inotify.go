@@ -96,7 +96,9 @@ func (w *Watcher) Add(name string) error {
 
 	const agnosticEvents = unix.IN_MOVED_TO | unix.IN_MOVED_FROM |
 		unix.IN_CREATE | unix.IN_ATTRIB | unix.IN_MODIFY |
-		unix.IN_MOVE_SELF | unix.IN_DELETE | unix.IN_DELETE_SELF
+		unix.IN_MOVE_SELF | unix.IN_DELETE | unix.IN_DELETE_SELF |
+        unix.IN_ACCESS | unix.IN_OPEN
+
 
 	var flags uint32 = agnosticEvents
 
@@ -316,6 +318,7 @@ func (e *Event) ignoreLinux(mask uint32) bool {
 }
 
 // newEvent returns an platform-independent Event based on an inotify mask.
+
 func newEvent(name string, mask uint32) Event {
 	e := Event{Name: name}
 	if mask&unix.IN_CREATE == unix.IN_CREATE || mask&unix.IN_MOVED_TO == unix.IN_MOVED_TO {
@@ -332,6 +335,12 @@ func newEvent(name string, mask uint32) Event {
 	}
 	if mask&unix.IN_ATTRIB == unix.IN_ATTRIB {
 		e.Op |= Chmod
+	}
+	if mask&unix.IN_ACCESS == unix.IN_ACCESS {
+		e.Op |= Access
+	}
+	if mask&unix.IN_OPEN == unix.IN_OPEN {
+		e.Op |= Open
 	}
 	return e
 }
