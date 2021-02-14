@@ -30,10 +30,12 @@ type Watcher struct {
 	paths    map[int]string    // Map of watched paths (key: watch descriptor)
 	done     chan struct{}     // Channel for sending a "quit message" to the reader goroutine
 	doneResp chan struct{}     // Channel to respond to Close
+	flags    uint32            // Flags which tell InotifyAddWatch on which events we want to get notified
 }
 
 // NewWatcher establishes a new watcher with the underlying OS and begins waiting for events.
-func NewWatcher() (*Watcher, error) {
+// flags: Events to watch (IN_xx https://pkg.go.dev/syscall#pkg-constants)
+func NewWatcher(flags uint32) (*Watcher, error) {
 	// Create inotify fd
 	fd, errno := unix.InotifyInit1(unix.IN_CLOEXEC)
 	if fd == -1 {
@@ -45,6 +47,7 @@ func NewWatcher() (*Watcher, error) {
 		unix.Close(fd)
 		return nil, err
 	}
+
 	w := &Watcher{
 		fd:       fd,
 		poller:   poller,
@@ -54,6 +57,7 @@ func NewWatcher() (*Watcher, error) {
 		Errors:   make(chan error),
 		done:     make(chan struct{}),
 		doneResp: make(chan struct{}),
+		flags:    flags,
 	}
 
 	go w.readEvents()
@@ -94,31 +98,23 @@ func (w *Watcher) Add(name string) error {
 		return errors.New("inotify instance already closed")
 	}
 
-	const agnosticEvents = unix.IN_MOVED_TO | unix.IN_MOVED_FROM |
-		unix.IN_CREATE | unix.IN_ATTRIB | unix.IN_MODIFY |
-		unix.IN_MOVE_SELF | unix.IN_DELETE | unix.IN_DELETE_SELF |
-        unix.IN_ACCESS | unix.IN_OPEN
-
-
-	var flags uint32 = agnosticEvents
-
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	watchEntry := w.watches[name]
 	if watchEntry != nil {
-		flags |= watchEntry.flags | unix.IN_MASK_ADD
+		w.flags |= watchEntry.flags | unix.IN_MASK_ADD
 	}
-	wd, errno := unix.InotifyAddWatch(w.fd, name, flags)
+	wd, errno := unix.InotifyAddWatch(w.fd, name, w.flags)
 	if wd == -1 {
 		return errno
 	}
 
 	if watchEntry == nil {
-		w.watches[name] = &watch{wd: uint32(wd), flags: flags}
+		w.watches[name] = &watch{wd: uint32(wd), flags: w.flags}
 		w.paths[wd] = name
 	} else {
 		watchEntry.wd = uint32(wd)
-		watchEntry.flags = flags
+		watchEntry.flags = w.flags
 	}
 
 	return nil
